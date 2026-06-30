@@ -213,11 +213,19 @@
       +'<div class="sc-cols"><div class="sc-bat"><div class="sc-h">Batting</div>'+b+'</div>'
       +'<div class="sc-bowl"><div class="sc-h">Bowling</div>'+o+'</div></div></div>';
   }
+  // CricClubs returns the result with a short team code ("STL won by 3 Wickets").
+  // The winner is the higher-scoring side, so swap the code for the full name.
+  function fullResult(d){
+    var r=d.matchResult||"";
+    if(!/\bwon by\b/i.test(r)) return r;
+    var winner=(Number(d.team1Score)||0) >= (Number(d.team2Score)||0) ? d.team1Name : d.team2Name;
+    return r.replace(/^.*?\bwon by\b/i, esc(winner)+" won by");
+  }
   function renderScorecard(d){
     bar.classList.remove("show");
     var head='<div class="sc-head"><span class="t">'+esc(d.leagueName||"")+'</span>'
       +'<span class="r">'+esc(d.seriesName||"")+'</span></div>';
-    var res= d.matchResult? '<div class="sc-result">'+esc(d.matchResult)+'</div>':'';
+    var res= d.matchResult? '<div class="sc-result">'+fullResult(d)+'</div>':'';
     var toss= d.tossResult? '<div class="sc-toss">'+esc(d.tossResult)+'</div>':'';
     var b1=innBlock(d.team1Name,d.team1Score,d.team1Wickets,d.team1Overs,d.team1TopBatsman,d.team1TopBowlers,"a");
     var b2=innBlock(d.team2Name,d.team2Score,d.team2Wickets,d.team2Overs,d.team2TopBatsman,d.team2TopBowlers,"b");
