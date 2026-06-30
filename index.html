@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CricClubs Live Ticker — setup</title>
+<style>
+  body{margin:0 auto;max-width:760px;padding:32px;background:#0d1117;color:#e6edf3;line-height:1.6;
+       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;}
+  h1{font-size:24px;margin:0 0 4px;} .sub{color:#9fb0c0;margin:0 0 24px;}
+  code{background:#1b2330;border:1px solid #2a3645;border-radius:6px;padding:2px 7px;font-size:13px;}
+  .box{background:#161b22;border:1px solid #2a3645;border-radius:12px;padding:18px 20px;}
+  label{display:block;font-size:13px;color:#9fb0c0;margin:10px 0 4px;}
+  input,select{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:8px;border:1px solid #2a3645;
+        background:#0d1117;color:#e6edf3;font-size:15px;}
+  a.btn{display:inline-block;margin-top:14px;background:#14b4a4;color:#06231f;text-decoration:none;
+        padding:10px 18px;border-radius:8px;font-weight:700;}
+  .url{word-break:break-all;color:#7ee2a8;font-size:13px;margin-top:12px;}
+</style>
+</head>
+<body>
+  <h1>CricClubs Live Ticker</h1>
+  <p class="sub">Build a browser-source URL for OBS / Streamlabs / PRISM Live Studio.</p>
+  <div class="box">
+    <label>Club ID (fixed for your league)</label>
+    <input id="club" value="1110094" />
+    <label>Match ID (assigned once live scoring starts — find it in the CricClubs app's Fixture Details)</label>
+    <input id="id" value="994" />
+    <label>Streaming app</label>
+    <select id="provider">
+      <option value="">Default (OBS / large)</option>
+      <option value="streamlabs">Streamlabs</option>
+      <option value="prism">PRISM Live Studio</option>
+    </select>
+    <a class="btn" id="open" href="#" target="_blank">Open ticker ↗</a>
+    <div class="url" id="url"></div>
+  </div>
+  <p style="color:#9fb0c0;font-size:14px;">Add a <b>Browser Source</b> (1920×1080, transparent).
+     The <b>Match ID</b> is <code>0</code> until live scoring begins — see the app's Fixture Details screen.</p>
+<script>
+  function build(){
+    var club=document.getElementById('club').value.trim()||'1110094';
+    var id=document.getElementById('id').value.trim()||'994';
+    var pr=document.getElementById('provider').value;
+    var u='ticker.html?club='+encodeURIComponent(club)+'&id='+encodeURIComponent(id);
+    if(pr) u+='&provider='+pr;
+    document.getElementById('open').href=u;
+    document.getElementById('url').textContent=new URL(u, location.href).href;
+  }
+  ['club','id','provider'].forEach(function(k){document.getElementById(k).addEventListener('input',build);});
+  document.getElementById('provider').addEventListener('change',build);
+  build();
+</script>
+</body>
+</html>

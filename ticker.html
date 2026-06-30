@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CricClubs Live Ticker</title>
+<style>
+  :root{
+    --barH:104px; --nm:24px; --rb:24px; --rbS:15px; --ini:18px;
+    --logoW:96px; --logoImg:62px; --pillName:14px; --pillMax:128px; --score:26px; --ov:16px;
+    /* Classic (translucent white) palette */
+    --bar-bg:rgba(255,255,255,.70); --name:#16181d; --sub:#5f6671; --strike:#e0541f;
+    --sc-bg:#16181d; --sc-text:#fff; --sc-ov:#aeb6c2;
+    --ab-a-bg:#e84a7f; --ab-b-bg:#14b4a4;
+    --strip-bg:#262c70; --strip-chase-bg:#b0335c;
+    --ball-wkt:#e23b3b; --pink:#e84a7f; --teal:#14b4a4; --navy:#262c70;
+  }
+  body.prov-streamlabs, body.prov-prism{
+    --barH:88px; --nm:17px; --rb:18px; --rbS:12px; --ini:14px;
+    --logoW:58px; --logoImg:42px; --pillName:11px; --pillMax:96px; --score:19px; --ov:12px;
+  }
+  body.prov-streamlabs .players, body.prov-prism .players{ padding:0 12px; gap:6px; }
+  body.prov-streamlabs .pill .sc, body.prov-prism .pill .sc{ padding:6px 10px; gap:7px; }
+  body.prov-streamlabs .pill .ab, body.prov-prism .pill .ab{ padding:5px 9px; }
+
+  html,body{margin:0;height:100%;width:100%;overflow:hidden;background:transparent;
+            font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;}
+
+  #bar{ position:fixed; left:18px; right:18px; bottom:16px; height:var(--barH);
+        display:flex; align-items:stretch; color:var(--name);
+        background:var(--bar-bg); -webkit-backdrop-filter:blur(5px); backdrop-filter:blur(5px);
+        border-radius:20px; overflow:hidden; box-shadow:0 8px 26px rgba(0,0,0,.4);
+        transform:translateY(160%); transition:transform .45s ease; }
+  #bar.show{ transform:translateY(0); }
+
+  .logo{ width:var(--logoW); display:flex; align-items:center; justify-content:center; flex:none; }
+  .logo img{ width:var(--logoImg); height:var(--logoImg); border-radius:50%; object-fit:cover;
+             background:#fff; border:2px solid #e6e8ec; }
+  .logo .ini{ width:var(--logoImg); height:var(--logoImg); border-radius:50%; display:flex;
+              align-items:center; justify-content:center; font-weight:800; font-size:var(--ini); color:#fff; }
+  .logo .ini.a{ background:var(--ab-a-bg); } .logo .ini.b{ background:var(--ab-b-bg); }
+
+  .players{ flex:1; display:flex; flex-direction:column; justify-content:center; gap:9px; padding:0 18px; min-width:0; }
+  .players.right{ align-items:flex-end; text-align:right; }
+  .prow{ display:flex; align-items:baseline; gap:9px; white-space:nowrap; max-width:100%; min-width:0; }
+  .prow .nm{ font-weight:700; font-size:var(--nm); color:var(--name); min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .prow .rb{ font-weight:800; font-size:var(--rb); color:var(--name); font-variant-numeric:tabular-nums; flex:none; }
+  .prow .rb small{ font-size:var(--rbS); color:var(--sub); font-weight:600; margin-left:3px; }
+  .prow.dim{ opacity:.74; }
+  .prow .strike{ color:var(--strike); font-size:var(--ini); margin-right:-5px; flex:none; }
+
+  .center{ display:flex; flex-direction:column; align-items:center; justify-content:center; flex:none; padding:0 6px; }
+  .pill{ display:flex; align-items:stretch; border-radius:12px; overflow:hidden; box-shadow:0 2px 10px rgba(0,0,0,.3); }
+  .pill .ab{ padding:7px 12px; font-weight:800; font-size:var(--pillName); line-height:1.12; color:#fff;
+             display:flex; align-items:center; text-align:center; max-width:var(--pillMax); white-space:normal; word-break:break-word; }
+  .pill .ab.a{ background:var(--ab-a-bg); } .pill .ab.b{ background:var(--ab-b-bg); }
+  .pill .sc{ background:var(--sc-bg); padding:8px 16px; display:flex; align-items:center; gap:10px; }
+  .pill .sc .score{ font-weight:800; font-size:var(--score); color:var(--sc-text); font-variant-numeric:tabular-nums; }
+  .pill .sc .ov{ color:var(--sc-ov); font-weight:700; font-size:var(--ov); }
+  .csub{ margin-top:7px; font-size:13px; font-weight:700; letter-spacing:.4px; text-transform:uppercase;
+         color:#fff; background:var(--strip-bg); border-radius:8px; padding:3px 12px; text-align:center;
+         max-width:420px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .csub.chase{ background:var(--strip-chase-bg); }
+
+  /* full scorecard (completed match) */
+  #scorecard{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; padding:3vh 3vw; box-sizing:border-box; }
+  #scorecard.show{ display:flex; }
+  .sc-card{ width:min(1040px,94%); background:rgba(255,255,255,.72); -webkit-backdrop-filter:blur(7px); backdrop-filter:blur(7px);
+            border-radius:18px; overflow:hidden; box-shadow:0 16px 44px rgba(0,0,0,.5); }
+  .sc-head{ background:var(--navy); color:#fff; display:flex; justify-content:space-between; align-items:center; padding:11px 22px; }
+  .sc-head .t{ font-weight:800; font-size:17px; } .sc-head .r{ opacity:.85; font-size:12px; text-transform:uppercase; }
+  .sc-result{ background:var(--pink); color:#fff; text-align:center; padding:9px; font-weight:800; font-size:19px; }
+  .sc-toss{ text-align:center; font-size:12px; color:#5f6671; padding:6px; background:rgba(20,24,29,.05); }
+  .sc-inn{ padding:13px 22px; border-bottom:1px solid rgba(20,24,29,.14); }
+  .sc-tm{ display:flex; align-items:center; gap:12px; margin-bottom:8px; }
+  .sc-tm .ini{ width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:12px; color:#fff; }
+  .sc-tm .nm{ font-weight:800; font-size:16px; color:#16181d; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sc-tm .tot{ font-weight:800; font-size:20px; color:var(--navy); flex:none; }
+  .sc-cols{ display:flex; gap:24px; }
+  .sc-bat,.sc-bowl{ flex:1; min-width:0; }
+  .sc-h{ font-size:10px; font-weight:800; letter-spacing:.6px; text-transform:uppercase; margin-bottom:3px; }
+  .sc-bat .sc-h{ color:var(--pink); } .sc-bowl .sc-h{ color:var(--teal); }
+  .sc-line{ display:flex; justify-content:space-between; gap:10px; font-size:13px; padding:3px 0; border-bottom:1px solid rgba(20,24,29,.10); color:#16181d; }
+  .sc-line .n{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sc-line .v{ font-weight:700; flex:none; } .sc-line .v small{ color:#5f6671; font-weight:600; font-size:11px; }
+</style>
+</head>
+<body>
+  <div id="bar">
+    <div class="logo" id="logoL"></div>
+    <div class="players" id="bat"></div>
+    <div class="center"><div class="pill" id="pill"></div><div class="csub" id="csub"></div></div>
+    <div class="players right" id="bowl"></div>
+    <div class="logo" id="logoR"></div>
+  </div>
+  <div id="scorecard"></div>
+
+<script>
+(function(){
+  var DEFAULT_API = "https://ccticker.tclnc.workers.dev/";  // deployed Cloudflare Worker
+
+  var q       = new URLSearchParams(location.search);
+  var clubId  = q.get("club") || "1110094";
+  var matchId = q.get("id")   || "994";
+  var refresh = Math.max(5, parseInt(q.get("refresh")||"10",10))*1000;
+  var isLocal = /^(localhost|127\.|0\.0\.0\.0|\[::1\])/.test(location.hostname);
+  var apiBase = q.get("api") || (isLocal ? "/api/" : DEFAULT_API);
+  if (apiBase.slice(-1) !== "/") apiBase += "/";
+  var prov = (q.get("provider")||"").toLowerCase().replace(/[^a-z]/g,"");
+  var compact = (prov==="streamlabs"||prov==="prism");
+  if (compact) document.body.classList.add("prov-"+prov);
+  if (q.get("demo")==="1")
+    document.body.style.background="radial-gradient(120% 90% at 50% 0%, #2f5d33 0%, #16331b 55%, #0a1a0d 100%)";
+
+  var LOGOS={};
+  var $=function(id){return document.getElementById(id);}, bar=$("bar");
+  function esc(s){ return (s==null?"":String(s)).replace(/[&<>]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;"}[c];}); }
+  function norm(s){ return String(s||"").toLowerCase().replace(/[^a-z0-9]/g,""); }
+  function abbr(name){ var w=String(name||"").trim().split(/\s+/); return (w.length>=2?(w[0][0]+w[1][0]):(name||"?").slice(0,2)).toUpperCase(); }
+  function fitName(name){
+    var full=String(name||"").trim();
+    if(!compact || full.length<=20) return esc(full);
+    var w=full.split(/\s+/); if(w.length<2) return esc(full);
+    return esc(w[0]+" "+w.slice(1).map(function(x){return x[0].toUpperCase()+".";}).join(" "));
+  }
+  function logoSrc(name){ var f=LOGOS[norm(name)]; return f? "assets/team-logos/"+encodeURIComponent(f) : null; }
+  function setLogo(elId,name,side){
+    var el=$(elId), src=logoSrc(name);
+    if(!src){ el.innerHTML='<div class="ini '+side+'">'+abbr(name)+'</div>'; return; }
+    el.innerHTML=""; var img=new Image(); img.alt=abbr(name);
+    img.onerror=function(){ el.innerHTML='<div class="ini '+side+'">'+abbr(name)+'</div>'; };
+    img.src=src; el.appendChild(img);
+  }
+
+  // CricClubs current-player fields are objects whose exact keys we confirm on a
+  // live match; read defensively across likely names.
+  function pget(o,keys){ if(o==null) return undefined; for(var i=0;i<keys.length;i++){ if(o[keys[i]]!=null) return o[keys[i]]; } return undefined; }
+  function batObj(o){
+    if(o==null) return null;
+    if(typeof o==="string") return {name:o,runs:null,balls:null};
+    return {name:pget(o,["batsmanName","name","playerName"]),
+            runs:pget(o,["runsScored","runs","score"]),
+            balls:pget(o,["ballsFaced","balls"])};
+  }
+  function bowlObj(o){
+    if(o==null) return null;
+    if(typeof o==="string") return {name:o};
+    return {name:pget(o,["bowlerName","name","playerName"]),
+            wickets:pget(o,["wickets","wicketsTaken"]),
+            runs:pget(o,["runsGiven","runs"]),
+            overs:pget(o,["overs"])};
+  }
+  function batRow(b,striker){
+    if(!b||!b.name) return "";
+    var rb = (b.runs!=null) ? '<span class="rb">'+b.runs+(b.balls!=null?'<small>('+b.balls+')</small>':'')+'</span>' : '';
+    return '<div class="prow'+(striker?'':' dim')+'">'+(striker?'<span class="strike">▶</span>':'')
+      +'<span class="nm">'+fitName(b.name)+'</span>'+rb+'</div>';
+  }
+  function bowlRow(b){
+    if(!b||!b.name) return "";
+    var figs = (b.wickets!=null||b.runs!=null) ? (((b.wickets!=null?b.wickets:0))+'-'+((b.runs!=null?b.runs:0))
+        +(b.overs!=null?'<small>('+b.overs+')</small>':'')) : '';
+    return '<div class="prow"><span class="nm">'+fitName(b.name)+'</span>'+(figs?'<span class="rb">'+figs+'</span>':'')+'</div>';
+  }
+
+  // team1 is the first-innings batting side (to verify on a live game).
+  function battingIndex(d){
+    if(d.currentInnings===2) return 2;
+    if(d.currentInnings===1) return 1;
+    return 1;
+  }
+  function render(d){
+    var bi=battingIndex(d);
+    var batName = bi===2 ? d.team2Name : d.team1Name;
+    var bowName = bi===2 ? d.team1Name : d.team2Name;
+    var batScore= bi===2 ? d.team2Score : d.team1Score;
+    var batWk   = bi===2 ? d.team2Wickets : d.team1Wickets;
+    var batOv   = bi===2 ? d.team2Overs : d.team1Overs;
+    setLogo("logoL", batName, "a"); setLogo("logoR", bowName, "b");
+
+    var sb=batObj(d.currentBatsman), nsb=batObj(d.currentRunner), bw=bowlObj(d.currentBowler);
+    $("bat").innerHTML = (sb?batRow(sb,true):"") + (nsb?batRow(nsb,false):"");
+    $("bowl").innerHTML = bw?bowlRow(bw):"";
+
+    $("pill").innerHTML =
+        '<div class="ab a">'+esc(batName)+'</div>'
+      + '<div class="sc"><span class="score">'+(batScore!=null?batScore:0)+'-'+(batWk!=null?batWk:0)+'</span>'
+      + '<span class="ov">'+(batOv!=null?batOv:'0')+' ov</span></div>'
+      + '<div class="ab b">'+esc(bowName)+'</div>';
+
+    var sub=$("csub"); sub.className="csub";
+    if (bi===2){
+      var target=(d.team1Score!=null?d.team1Score:0)+1, need=target-(d.team2Score!=null?d.team2Score:0);
+      sub.className="csub chase";
+      sub.innerHTML = (need>0 ? ('Need '+need+' run'+(need===1?'':'s')+' to win  •  Target '+target) : esc(d.matchResult||"Won"));
+    } else {
+      sub.innerHTML = esc((d.leagueName||"Live")+' • First Innings');
+    }
+    bar.classList.add("show");
+  }
+
+  // ---- completed match -> full scorecard ----
+  function scLine(n,v){ return '<div class="sc-line"><span class="n">'+n+'</span><span class="v">'+v+'</span></div>'; }
+  function innBlock(name,score,wk,ov,bats,bowls,side){
+    var b=(bats||[]).map(function(p){
+      var out=(String(p.isOut)==="0")?' <b style="color:#0e8d80">*</b>':'';
+      return scLine(fitName(p.batsmanName)+out,(p.runsScored||0)+' <small>('+(p.ballsFaced||0)+')</small>'); }).join('');
+    var o=(bowls||[]).map(function(p){
+      return scLine(fitName(p.bowlerName),(p.wickets||0)+'-'+(p.runsGiven||0)+' <small>('+(p.overs||0)+')</small>'); }).join('');
+    var tot=(score!=null?score:0)+'/'+(wk!=null?wk:0)+' ('+(ov!=null?ov:0)+')';
+    return '<div class="sc-inn"><div class="sc-tm"><div class="ini '+side+'">'+abbr(name)+'</div>'
+      +'<span class="nm">'+esc(name)+'</span><span class="tot">'+tot+'</span></div>'
+      +'<div class="sc-cols"><div class="sc-bat"><div class="sc-h">Batting</div>'+b+'</div>'
+      +'<div class="sc-bowl"><div class="sc-h">Bowling</div>'+o+'</div></div></div>';
+  }
+  function renderScorecard(d){
+    bar.classList.remove("show");
+    var head='<div class="sc-head"><span class="t">'+esc(d.leagueName||"")+'</span>'
+      +'<span class="r">'+esc(d.seriesName||"")+'</span></div>';
+    var res= d.matchResult? '<div class="sc-result">'+esc(d.matchResult)+'</div>':'';
+    var toss= d.tossResult? '<div class="sc-toss">'+esc(d.tossResult)+'</div>':'';
+    var b1=innBlock(d.team1Name,d.team1Score,d.team1Wickets,d.team1Overs,d.team1TopBatsman,d.team1TopBowlers,"a");
+    var b2=innBlock(d.team2Name,d.team2Score,d.team2Wickets,d.team2Overs,d.team2TopBatsman,d.team2TopBowlers,"b");
+    $("scorecard").innerHTML='<div class="sc-card">'+head+res+toss+b1+b2+'</div>';
+    $("scorecard").classList.add("show");
+  }
+
+  function tick(){
+    fetch(apiBase+encodeURIComponent(clubId)+"/"+encodeURIComponent(matchId),{cache:"no-store"})
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        var d=j&&j.data; if(!d){ return; }
+        if (String(d.isCompleted)==="1") renderScorecard(d);
+        else render(d);
+      })
+      .catch(function(){});
+  }
+  fetch("assets/team-logos/manifest.json",{cache:"force-cache"})
+    .then(function(r){ return r.ok?r.json():{}; }).then(function(m){ LOGOS=m||{}; })
+    .catch(function(){}).then(function(){ tick(); setInterval(tick, refresh); });
+})();
+</script>
+</body>
+</html>
