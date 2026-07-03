@@ -24,8 +24,10 @@
   <div class="box">
     <label>Club ID (fixed for your league)</label>
     <input id="club" value="1110094" />
-    <label>Match ID (assigned once live scoring starts — find it in the CricClubs app's Fixture Details)</label>
-    <input id="id" value="994" />
+    <label>Fixture ID (recommended — known before the game; the ticker resolves the Match ID automatically once scoring starts)</label>
+    <input id="fixture" value="" placeholder="e.g. 1085" />
+    <label>…or Match ID (assigned once live scoring starts — find it in the CricClubs app's Fixture Details)</label>
+    <input id="id" value="" placeholder="e.g. 999" />
     <label>Streaming app</label>
     <select id="provider">
       <option value="">Default (OBS / large)</option>
@@ -40,14 +42,17 @@
 <script>
   function build(){
     var club=document.getElementById('club').value.trim()||'1110094';
-    var id=document.getElementById('id').value.trim()||'994';
+    var fx=document.getElementById('fixture').value.trim();
+    var id=document.getElementById('id').value.trim();
     var pr=document.getElementById('provider').value;
-    var u='ticker.html?club='+encodeURIComponent(club)+'&id='+encodeURIComponent(id);
+    var u='ticker.html?club='+encodeURIComponent(club);
+    if(fx) u+='&fixture='+encodeURIComponent(fx);
+    else u+='&id='+encodeURIComponent(id||'994');
     if(pr) u+='&provider='+pr;
     document.getElementById('open').href=u;
     document.getElementById('url').textContent=new URL(u, location.href).href;
   }
-  ['club','id','provider'].forEach(function(k){document.getElementById(k).addEventListener('input',build);});
+  ['club','fixture','id','provider'].forEach(function(k){document.getElementById(k).addEventListener('input',build);});
   document.getElementById('provider').addEventListener('change',build);
   build();
 </script>

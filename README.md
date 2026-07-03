@@ -16,15 +16,28 @@ data host is open:
   this token per request — pure-Python locally, pure-JS (BigInt) in the Worker.
 - **CORS:** the API sends none, so the proxy adds it.
 
-One JSON call returns: teams, scores/overs/wickets, toss, result, `isCompleted`,
-top 3 batsmen + bowlers per team, and `currentBatsman`/`currentBowler`/
-`currentInnings` (populate during live play).
+The proxy exposes three endpoints (same token/CORS treatment on each):
+
+| Proxy route                      | CricClubs API                    | Used for                              |
+|----------------------------------|----------------------------------|---------------------------------------|
+| `/<club>/<match>`                | `scoreCard/getScoreCardSummary`  | teams, scores, toss, result, chase    |
+| `/<club>/<match>/balls`          | `scoreCard/getBallByBall`        | live bar: current pair + bowler figures (`latestBatting`/`latestBowling`) and per-over `oversMap.OverN.balls[]` → this-over chips |
+| `/<club>/schedule/<seriesId>`    | `match/getSchedule`              | resolving `fixture=` → live `matchId` |
+
+Ball-feed notes: `balls[]` is newest-first (sort by `createdAt`); entries with
+`ballType:"Auto Comment Ball"` are commentary noise, not deliveries;
+`runsDisplay` is the chip text (`.` `1` `4` `6` `W` `1wd` `1nb`).
+`innings1Balls.teamName` says who actually batted first (don't assume team1).
 
 ### IDs
 - **`clubId`** is fixed per league (e.g. Fidelity Cricket League = `1110094`).
-- **`matchId`** is assigned only when live scoring starts (`0` before). The
-  stable per-fixture id is `fixtureId`; find the live `matchId` in the app's
-  **Fixture Details** screen.
+- **`matchId`** is assigned only when live scoring starts (`0` before), by a
+  per-club counter — so it can't be known for sure in advance (two games run
+  simultaneously each night; whichever starts scoring first takes the lower id).
+- **`fixtureId`** is the stable per-fixture id from the schedule. Prefer
+  `ticker.html?fixture=<id>&series=<seriesId>`: the overlay polls the schedule
+  (every 30 s) until scoring assigns a matchId, then switches to it
+  automatically — the browser source can be set up before the game.
 
 ```
 index.html     Setup page — build the browser-source URL
@@ -54,19 +67,25 @@ python3 dev-server.py
 | Param      | Default    | Notes                                            |
 |------------|------------|--------------------------------------------------|
 | `club`     | `1110094`  | CricClubs club/league id                         |
+| `fixture`  | off        | Fixture id — auto-resolves the match id when scoring starts (preferred) |
+| `series`   | `18`       | Series id for `fixture` lookup (18 = Season 2026)|
 | `id`       | `994`      | Match id (live scoring assigns it; `0` before)   |
 | `provider` | off        | `streamlabs` / `prism` — compacts + fits names   |
 | `refresh`  | `10`       | Seconds between updates (min 5)                  |
 | `api`      | `DEFAULT_API` | Override the Worker URL                        |
 | `demo`     | off        | `1` = green backdrop for local preview           |
+| `view`     | off        | `live` = force the live bar on a completed match (debug) |
 
 ## Status / TODO
 
 - ✅ Token + proxy + completed-match **scorecard** verified against real data.
-- 🔶 **Live bar** (striker/non-striker/current bowler, chase equation) is
-  scaffolded from the field names but the live-only objects
-  (`currentBatsman`/`currentRunner`/`currentBowler`) were `null` on the
-  completed test match — to be confirmed/finalised against a live game.
+- ✅ **Live bar** now driven by `getBallByBall`: current bowler with cumulative
+  figures (`latestBowling` — the summary's `currentBowler` proved unreliable
+  live) and **this-over ball chips** (`•`/runs/`W`/`1wd`/`1nb`, wicket red,
+  4 teal, 6 navy). Falls back to the previous over while a new over has no
+  deliveries yet, and to summary fields if the ball feed fails.
+- 🔶 Striker (`▶`) still trusts the summary's `currentBatsman` when present;
+  ball-feed fallback marks the over's `batsmanName`.
 - Logos: drop PNGs in `assets/team-logos/` (filename ≈ team name) and run the
   manifest generator (see the CricHeroes project's README) — falls back to
   initials.

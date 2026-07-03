@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dev-server",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["dev-server.py"],
+      "port": 8090,
+      "autoPort": true
+    }
+  ]
+}

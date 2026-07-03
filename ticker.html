@@ -49,6 +49,20 @@
   .prow.dim{ opacity:.74; }
   .prow .strike{ color:var(--strike); font-size:var(--ini); margin-right:-5px; flex:none; }
 
+  /* this-over ball-by-ball chips */
+  .prow.balls{ gap:5px; }
+  .ball{ min-width:24px; height:24px; padding:0 6px; box-sizing:border-box; border-radius:12px;
+         display:flex; align-items:center; justify-content:center; flex:none;
+         font-weight:800; font-size:13px; background:#e6e8ec; color:#16181d;
+         font-variant-numeric:tabular-nums; }
+  .ball.b4{ background:var(--teal); color:#fff; }
+  .ball.b6{ background:var(--navy); color:#fff; }
+  .ball.w{ background:var(--ball-wkt); color:#fff; }
+  .ball.ex{ background:#f2c94c; color:#5a4300; font-size:11px; }
+  body.prov-streamlabs .ball, body.prov-prism .ball{
+    min-width:18px; height:18px; padding:0 4px; border-radius:9px; font-size:10px; }
+  body.prov-streamlabs .ball.ex, body.prov-prism .ball.ex{ font-size:9px; }
+
   .center{ display:flex; flex-direction:column; align-items:center; justify-content:center; flex:none; padding:0 6px; }
   .pill{ display:flex; align-items:stretch; border-radius:12px; overflow:hidden; box-shadow:0 2px 10px rgba(0,0,0,.3); }
   .pill .ab{ padding:7px 12px; font-weight:800; font-size:var(--pillName); line-height:1.12; color:#fff;
@@ -101,7 +115,11 @@
 
   var q       = new URLSearchParams(location.search);
   var clubId  = q.get("club") || "1110094";
-  var matchId = q.get("id")   || "994";
+  var matchId = q.get("id")   || "";
+  var fixtureId = q.get("fixture") || "";   // stable per-fixture id: resolves matchId from the schedule
+  var seriesId  = q.get("series")  || "18"; // Season 2026
+  if (!matchId && !fixtureId) matchId = "994";
+  var forceLive = q.get("view")==="live";   // debug: show the live bar even for a completed match
   var refresh = Math.max(5, parseInt(q.get("refresh")||"10",10))*1000;
   var isLocal = /^(localhost|127\.|0\.0\.0\.0|\[::1\])/.test(location.hostname);
   var apiBase = q.get("api") || (isLocal ? "/api/" : DEFAULT_API);
@@ -163,24 +181,85 @@
     return '<div class="prow"><span class="nm">'+fitName(b.name)+'</span>'+(figs?'<span class="rb">'+figs+'</span>':'')+'</div>';
   }
 
-  // team1 is the first-innings batting side (to verify on a live game).
-  function battingIndex(d){
+  // ---- ball-by-ball (scoreCard/getBallByBall) --------------------------
+  // Gives the current pair + bowler with cumulative figures, and each over as
+  // oversMap.OverN.balls[] (newest first, "Auto Comment Ball" = commentary noise).
+  function shortName(f,l){ f=String(f||"").trim(); l=String(l||"").trim(); return (f+(l?" "+l[0]:"")).trim(); }
+  function currentInningsBalls(bd){
+    var i2=bd&&bd.innings2Balls, i1=bd&&bd.innings1Balls;
+    if(i2&&i2.oversMap&&Object.keys(i2.oversMap).length) return {inn:2,data:i2};
+    if(i1&&i1.oversMap&&Object.keys(i1.oversMap).length) return {inn:1,data:i1};
+    return null;
+  }
+  function oversSorted(data){
+    return Object.keys(data.oversMap).sort(function(a,b){ return parseInt(a.slice(4),10)-parseInt(b.slice(4),10); });
+  }
+  function realBalls(over){
+    var arr=(over&&over.balls||[]).filter(function(b){ return b.ballType!=="Auto Comment Ball"; });
+    arr.sort(function(a,b){ return String(a.createdAt||"").localeCompare(String(b.createdAt||"")); });
+    return arr;
+  }
+  function ballChips(cur){
+    var ks=oversSorted(cur.data); if(!ks.length) return "";
+    var balls=realBalls(cur.data.oversMap[ks[ks.length-1]]);
+    if(!balls.length && ks.length>1) balls=realBalls(cur.data.oversMap[ks[ks.length-2]]);
+    return balls.slice(-9).map(function(b){
+      var t=String(b.runsDisplay==null?"":b.runsDisplay)||".";
+      var cls="ball";
+      if(t.indexOf("W")>=0) cls+=" w";
+      else if(/wd|nb/i.test(t)) cls+=" ex";
+      else if(t==="4") cls+=" b4";
+      else if(t==="6") cls+=" b6";
+      return '<span class="'+cls+'">'+esc(t==="."?"•":t)+'</span>';
+    }).join("");
+  }
+  function liveFromBalls(bd){
+    var cur=currentInningsBalls(bd); if(!cur) return null;
+    var ks=oversSorted(cur.data), over=cur.data.oversMap[ks[ks.length-1]]||{};
+    var lb=bd.latestBowling||{}, pick=lb.bowler1, bowl=null;
+    if(over.bowlerName && lb.bowler2
+       && shortName(lb.bowler2.firstName,lb.bowler2.lastName)===over.bowlerName
+       && (!pick || shortName(pick.firstName,pick.lastName)!==over.bowlerName)) pick=lb.bowler2;
+    if(pick) bowl={name:shortName(pick.firstName,pick.lastName), wickets:pick.wickets, runs:pick.runs, overs:pick.overs};
+    var bat=null, run=null, pair=bd.latestBatting||{};
+    if(over.batsmanName){
+      bat={name:over.batsmanName, runs:over.batsmanRuns, balls:over.batsmanBalls};
+      if(over.runnerName) run={name:over.runnerName, runs:over.runnerRuns, balls:over.runnerBalls};
+    } else if(pair.batsman1){
+      bat={name:shortName(pair.batsman1.firstName,pair.batsman1.lastName), runs:pair.batsman1.runsScored, balls:pair.batsman1.ballsFaced};
+      if(pair.batsman2) run={name:shortName(pair.batsman2.firstName,pair.batsman2.lastName), runs:pair.batsman2.runsScored, balls:pair.batsman2.ballsFaced};
+    }
+    return {inn:cur.inn, bowler:bowl, striker:bat, runner:run, chips:ballChips(cur),
+            firstBatTeam: bd.innings1Balls && bd.innings1Balls.teamName};
+  }
+
+  function battingIndex(d, live){
     if(d.currentInnings===2) return 2;
     if(d.currentInnings===1) return 1;
-    return 1;
+    return live ? live.inn : 1;
   }
-  function render(d){
-    var bi=battingIndex(d);
-    var batName = bi===2 ? d.team2Name : d.team1Name;
-    var bowName = bi===2 ? d.team1Name : d.team2Name;
-    var batScore= bi===2 ? d.team2Score : d.team1Score;
-    var batWk   = bi===2 ? d.team2Wickets : d.team1Wickets;
-    var batOv   = bi===2 ? d.team2Overs : d.team1Overs;
+  function render(d, live){
+    var bi=battingIndex(d, live);
+    // team1 usually bats first, but the ball feed knows for sure.
+    var t1First = !(live&&live.firstBatTeam) || norm(live.firstBatTeam)===norm(d.team1Name);
+    var batIsT1 = (bi===1) === t1First;
+    var batName = batIsT1 ? d.team1Name : d.team2Name;
+    var bowName = batIsT1 ? d.team2Name : d.team1Name;
+    var batScore= batIsT1 ? d.team1Score : d.team2Score;
+    var batWk   = batIsT1 ? d.team1Wickets : d.team2Wickets;
+    var batOv   = batIsT1 ? d.team1Overs : d.team2Overs;
     setLogo("logoL", batName, "a"); setLogo("logoR", bowName, "b");
 
+    // live objects from the summary when populated, ball-by-ball as fallback
+    // (the bowler always comes from the ball feed — summary's currentBowler
+    // proved unreliable during live play).
     var sb=batObj(d.currentBatsman), nsb=batObj(d.currentRunner), bw=bowlObj(d.currentBowler);
+    if((!sb||!sb.name) && live) sb=live.striker;
+    if((!nsb||!nsb.name) && live) nsb=live.runner;
+    if(live && live.bowler) bw=live.bowler;
     $("bat").innerHTML = (sb?batRow(sb,true):"") + (nsb?batRow(nsb,false):"");
-    $("bowl").innerHTML = bw?bowlRow(bw):"";
+    $("bowl").innerHTML = (bw?bowlRow(bw):"")
+      + (live&&live.chips ? '<div class="prow balls">'+live.chips+'</div>' : "");
 
     $("pill").innerHTML =
         '<div class="ab a">'+esc(batName)+'</div>'
@@ -190,7 +269,8 @@
 
     var sub=$("csub"); sub.className="csub";
     if (bi===2){
-      var target=(d.team1Score!=null?d.team1Score:0)+1, need=target-(d.team2Score!=null?d.team2Score:0);
+      var inn1Score = t1First ? d.team1Score : d.team2Score;
+      var target=(inn1Score!=null?inn1Score:0)+1, need=target-(batScore!=null?batScore:0);
       sub.className="csub chase";
       sub.innerHTML = (need>0 ? ('Need '+need+' run'+(need===1?'':'s')+' to win  •  Target '+target) : esc(d.matchResult||"Won"));
     } else {
@@ -233,13 +313,36 @@
     $("scorecard").classList.add("show");
   }
 
+  function fetchJSON(u){ return fetch(u,{cache:"no-store"}).then(function(r){ return r.json(); }); }
+
+  // With ?fixture=<id>, poll the schedule until live scoring assigns a matchId.
+  var lastSched=0;
+  function resolveFixture(){
+    var now=Date.now(); if(now-lastSched<30000) return; lastSched=now;
+    fetchJSON(apiBase+encodeURIComponent(clubId)+"/schedule/"+encodeURIComponent(seriesId))
+      .then(function(j){
+        var fl=(j&&j.data&&j.data.fixtureList)||[];
+        for(var i=0;i<fl.length;i++){
+          if(String(fl[i].fixtureId)===String(fixtureId)){
+            if(fl[i].matchId && String(fl[i].matchId)!=="0"){ matchId=String(fl[i].matchId); tick(); }
+            return;
+          }
+        }
+      }).catch(function(){});
+  }
+
   function tick(){
-    fetch(apiBase+encodeURIComponent(clubId)+"/"+encodeURIComponent(matchId),{cache:"no-store"})
-      .then(function(r){ return r.json(); })
+    if(!matchId || matchId==="0"){ resolveFixture(); return; }
+    fetchJSON(apiBase+encodeURIComponent(clubId)+"/"+encodeURIComponent(matchId))
       .then(function(j){
         var d=j&&j.data; if(!d){ return; }
-        if (String(d.isCompleted)==="1") renderScorecard(d);
-        else render(d);
+        if (String(d.isCompleted)==="1" && !forceLive){ renderScorecard(d); return; }
+        fetchJSON(apiBase+encodeURIComponent(clubId)+"/"+encodeURIComponent(matchId)+"/balls")
+          .then(function(b){
+            var live=null; try{ live=liveFromBalls(b&&b.data); }catch(e){}
+            render(d, live);
+          })
+          .catch(function(){ render(d, null); });
       })
       .catch(function(){});
   }

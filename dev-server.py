@@ -22,7 +22,7 @@ import base64, os, time, json, urllib.request, urllib.error, sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 PORT = int(os.environ.get("PORT", "8090"))
-API = "https://core-prod-origin.cricclubs.com/core/scoreCard/getScoreCardSummary"
+API_BASE = "https://core-prod-origin.cricclubs.com/core"
 APP_VERSION = "4.0.536"
 
 # RSA public key used by the CricClubs web app to build x-content-token.
@@ -82,10 +82,18 @@ class App(SimpleHTTPRequestHandler):
 
     def handle_api(self):
         parts = self.path[len("/api/"):].split("?")[0].strip("/").split("/")
-        if len(parts) != 2 or not all(p.isdigit() for p in parts):
-            return self._json(400, {"error": "use /api/<clubId>/<matchId>"})
-        club, match = parts
-        url = "%s?v=%s&clubId=%s&matchId=%s" % (API, APP_VERSION, club, match)
+        if len(parts) >= 2 and parts[0].isdigit() and parts[1] == "schedule" \
+                and len(parts) == 3 and parts[2].isdigit():
+            url = "%s/match/getSchedule?v=%s&clubId=%s&seriesId=%s&limit=200" % (
+                API_BASE, APP_VERSION, parts[0], parts[2])
+        elif len(parts) in (2, 3) and parts[0].isdigit() and parts[1].isdigit() \
+                and (len(parts) == 2 or parts[2] == "balls"):
+            ep = "getBallByBall" if len(parts) == 3 else "getScoreCardSummary"
+            url = "%s/scoreCard/%s?v=%s&clubId=%s&matchId=%s" % (
+                API_BASE, ep, APP_VERSION, parts[0], parts[1])
+        else:
+            return self._json(400, {"error": "use /api/<clubId>/<matchId>[/balls] "
+                                             "or /api/<clubId>/schedule/<seriesId>"})
         req = urllib.request.Request(url, headers={
             "x-content-token": content_token(),
             "User-Agent": UA,

@@ -7,11 +7,13 @@
  * This Worker builds that token per request and adds CORS.
  *
  * Deploy:  wrangler deploy
- * Use:     GET /<clubId>/<matchId>     e.g. /1110094/994
+ * Use:     GET /<clubId>/<matchId>            scorecard summary  e.g. /1110094/994
+ *          GET /<clubId>/<matchId>/balls      ball-by-ball (live bar + this-over)
+ *          GET /<clubId>/schedule/<seriesId>  season fixtures (resolves fixture -> matchId)
  *          GET /?club=<clubId>&id=<matchId>
  */
 
-const API = "https://core-prod-origin.cricclubs.com/core/scoreCard/getScoreCardSummary";
+const API_BASE = "https://core-prod-origin.cricclubs.com/core";
 const APP_VERSION = "4.0.536";
 
 // RSA public key (modulus + exponent) the CricClubs web app uses for the token.
@@ -57,12 +59,23 @@ export default {
     const url = new URL(request.url);
     const parts = url.pathname.replace(/^\/+|\/+$/g, "").split("/");
     const club = url.searchParams.get("club") || parts[0];
-    const match = url.searchParams.get("id") || parts[1];
-    if (!/^\d+$/.test(club || "") || !/^\d+$/.test(match || "")) {
-      return json({ error: "use /<clubId>/<matchId>" }, 400);
+    if (!/^\d+$/.test(club || "")) {
+      return json({ error: "use /<clubId>/<matchId>[/balls] or /<clubId>/schedule/<seriesId>" }, 400);
     }
 
-    const target = `${API}?v=${APP_VERSION}&clubId=${club}&matchId=${match}`;
+    let target;
+    if (parts[1] === "schedule") {
+      const series = parts[2];
+      if (!/^\d+$/.test(series || "")) return json({ error: "use /<clubId>/schedule/<seriesId>" }, 400);
+      target = `${API_BASE}/match/getSchedule?v=${APP_VERSION}&clubId=${club}&seriesId=${series}&limit=200`;
+    } else {
+      const match = url.searchParams.get("id") || parts[1];
+      if (!/^\d+$/.test(match || "")) {
+        return json({ error: "use /<clubId>/<matchId>[/balls]" }, 400);
+      }
+      const ep = parts[2] === "balls" ? "getBallByBall" : "getScoreCardSummary";
+      target = `${API_BASE}/scoreCard/${ep}?v=${APP_VERSION}&clubId=${club}&matchId=${match}`;
+    }
     let upstream;
     try {
       upstream = await fetch(target, {
