@@ -21,13 +21,42 @@ The proxy exposes three endpoints (same token/CORS treatment on each):
 | Proxy route                      | CricClubs API                    | Used for                              |
 |----------------------------------|----------------------------------|---------------------------------------|
 | `/<club>/<match>`                | `scoreCard/getScoreCardSummary`  | teams, scores, toss, result, chase    |
-| `/<club>/<match>/balls`          | `scoreCard/getBallByBall`        | live bar: current pair + bowler figures (`latestBatting`/`latestBowling`) and per-over `oversMap.OverN.balls[]` → this-over chips |
+| `/<club>/<match>/balls`          | `scoreCard/getBallByBall`        | everything else — live bar **and** all three splash cards |
 | `/<club>/schedule/<seriesId>`    | `match/getSchedule`              | resolving `fixture=` → live `matchId` |
 
 Ball-feed notes: `balls[]` is newest-first (sort by `createdAt`); entries with
 `ballType:"Auto Comment Ball"` are commentary noise, not deliveries;
 `runsDisplay` is the chip text (`.` `1` `4` `6` `W` `1wd` `1nb`).
 `innings1Balls.teamName` says who actually batted first (don't assume team1).
+
+### Why the ball feed carries the cards
+
+`getScoreCardSummary` only returns the **top 3** batters and bowlers, which isn't
+enough for a full-innings card. `getBallByBall` is the only full-detail source
+CricClubs exposes, so `innStats()` in `ticker.html` rebuilds an innings from it:
+
+- **Batting order** — order of first appearance of `strikerName` / `nonStrikerName`.
+- **Batter lines** — accumulated per delivery (wides don't count as a ball faced;
+  no-balls give 1 to extras; byes/leg-byes aren't credited to the bat). For a
+  **dismissed** batter the OUT commentary is authoritative and overrides the
+  accumulation — it carries runs, balls, 4s, 6s and SR exactly:
+  `<strong>Rameshkumar Chellamuthu c Shaikh M b Nandhakumar M 8</strong> (5balls 0 fours, 1 sixes) SR 160.00`.
+  Commentary names are full (`Viswa Chaitanya Kallagunta`) while the feed uses the
+  short form (`Viswa Chaitanya K`), so the batter is matched by shortening the
+  leading words until one hits a batter we've already seen; the rest is the dismissal.
+- **Bowling figures** — each `oversMap.OverN` entry carries its bowler's *running*
+  `bowlerBalls`/`bowlerMaidens`/`bowlerRuns`/`bowlerWickets`, so the last entry per
+  bowler is their final line. Overs = `balls/6`, economy = `runs*6/balls`.
+- **Extras** — `innings.runs` minus the sum of batter runs (exact); the
+  `2wd 1nb` breakdown is counted from `ballType`.
+- **Worm** — each over's `rcb` (`"70/7"`) is the authoritative cumulative anchor;
+  wicket markers are placed at `over + ball/6` using the running ball total.
+
+Verified against match `994`: batting 68 + 2 extras = 70/7, bowling 12.1 ov /
+70 runs / 7 wkts, and the derived not-out pair matches `latestBatting`.
+
+**Not available:** CricClubs exposes no squad list on these endpoints, so the
+full card has no "yet to bat" row (the CricHeroes sibling shows one).
 
 ### IDs
 - **`clubId`** is fixed per league (e.g. Fidelity Cricket League = `1110094`).
@@ -41,7 +70,7 @@ Ball-feed notes: `balls[]` is newest-first (sort by `createdAt`); entries with
 
 ```
 index.html     Setup page — build the browser-source URL
-ticker.html    The overlay (Classic theme; live bar + auto end-scorecard)
+ticker.html    The overlay (live bar + auto splash cards + end-of-match scorecard)
 dev-server.py  Local test server + token-generating proxy (Python 3, no deps)
 worker.js      Production proxy — Cloudflare Worker (pure-JS RSA token)
 wrangler.toml  Worker config
@@ -71,21 +100,49 @@ python3 dev-server.py
 | `series`   | `18`       | Series id for `fixture` lookup (18 = Season 2026)|
 | `id`       | `994`      | Match id (live scoring assigns it; `0` before)   |
 | `provider` | off        | `streamlabs` / `prism` — compacts + fits names   |
+| `theme`    | `classic`  | `classic` (white bar) or `dark` (translucent)    |
+| `bg`       | —          | DARK theme only: 6/8-digit hex **without** `#` (a `#` in a URL starts the fragment); the score box is auto-tinted |
+| `autocard` | on         | `0` disables the wicket / end-of-over splash     |
+| `cardsecs` | `30`       | How long a splash stays up (min 5)               |
 | `refresh`  | `10`       | Seconds between updates (min 5)                  |
 | `api`      | `DEFAULT_API` | Override the Worker URL                        |
 | `demo`     | off        | `1` = green backdrop for local preview           |
 | `view`     | off        | `live` = force the live bar on a completed match (debug) |
+| `card`     | off        | `full` / `summary` / `worm` — freeze one card for styling checks |
 
-## Status / TODO
+## Auto scorecard (wicket / end of over)
+
+Every wicket and every completed over raises a **splash card above the live bar**
+— the bar stays visible the whole time — for `cardsecs` seconds, banner-labelled
+`Wicket!` or `End of over N`:
+
+- **1st innings:** the full-innings card for the whole duration.
+- **2nd innings:** full-innings card 10 s → both-teams summary 5 s → **worm
+  graph** for whatever is left. At `cardsecs=15` there's no time left, so the
+  worm is skipped; at `cardsecs=10` only the full card shows.
+
+Triggers come from the ball feed (exact wicket count and completed-over count),
+falling back to the summary's wickets/overs if the ball feed fails, and reset on
+an innings change so the first poll of an innings only sets a baseline.
+
+## Status
 
 - ✅ Token + proxy + completed-match **scorecard** verified against real data.
-- ✅ **Live bar** now driven by `getBallByBall`: current bowler with cumulative
+- ✅ **Live bar** driven by `getBallByBall`: current bowler with cumulative
   figures (`latestBowling` — the summary's `currentBowler` proved unreliable
   live) and **this-over ball chips** (`•`/runs/`W`/`1wd`/`1nb`, wicket red,
-  4 teal, 6 navy). Falls back to the previous over while a new over has no
-  deliveries yet, and to summary fields if the ball feed fails.
+  4 teal, 6 navy) showing the whole over, extras included. Falls back to the
+  previous over while a new over has no deliveries yet, and to summary fields
+  if the ball feed fails.
+- ✅ **Auto splash** (full innings / summary / worm) verified by replaying match
+  `994` one delivery at a time against the overlay.
+- ✅ **Classic + dark themes**, `?bg=` recolouring, `?card=` preview.
 - 🔶 Striker (`▶`) still trusts the summary's `currentBatsman` when present;
   ball-feed fallback marks the over's `batsmanName`.
 - Logos: drop PNGs in `assets/team-logos/` (filename ≈ team name) and run the
   manifest generator (see the CricHeroes project's README) — falls back to
-  initials.
+  initials. Team logos also appear on the scorecard rows.
+- Divisions: the strip above the score pill shows the league name, plus
+  `• Division N` when an `assets/tournaments/data/divisions.json` is present
+  (`{"<clubId>":{"byName":{"<normalised team name>":N}}}`). Absent file = no
+  division, which is the normal case.

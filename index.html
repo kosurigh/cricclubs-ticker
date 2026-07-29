@@ -34,6 +34,25 @@
       <option value="streamlabs">Streamlabs</option>
       <option value="prism">PRISM Live Studio</option>
     </select>
+    <label>Theme</label>
+    <select id="theme">
+      <option value="classic">Classic (white broadcast bar)</option>
+      <option value="dark">Dark (translucent, custom colour)</option>
+    </select>
+    <div id="bgRow" style="display:none;">
+      <label>Dark-theme bar colour (translucent)</label>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <input id="pick" type="color" value="#078BDC" style="width:54px;height:42px;padding:2px;" />
+        <input id="bg" value="078BDC" style="flex:1;" />
+      </div>
+    </div>
+    <label>Auto scorecard on every wicket / end of over</label>
+    <select id="autocard">
+      <option value="">On — 30s (full innings → summary → worm graph)</option>
+      <option value="15">On — 15s (full innings → summary)</option>
+      <option value="10">On — 10s (full innings only)</option>
+      <option value="0">Off</option>
+    </select>
     <a class="btn" id="open" href="#" target="_blank">Open ticker ↗</a>
     <div class="url" id="url"></div>
   </div>
@@ -45,15 +64,28 @@
     var fx=document.getElementById('fixture').value.trim();
     var id=document.getElementById('id').value.trim();
     var pr=document.getElementById('provider').value;
+    var th=document.getElementById('theme').value;
+    var bg=document.getElementById('bg').value.trim().replace(/^#/,'');
+    var ac=document.getElementById('autocard').value;
+    document.getElementById('bgRow').style.display = th==='dark' ? 'block' : 'none';
     var u='ticker.html?club='+encodeURIComponent(club);
     if(fx) u+='&fixture='+encodeURIComponent(fx);
     else u+='&id='+encodeURIComponent(id||'994');
     if(pr) u+='&provider='+pr;
+    if(th && th!=='classic') u+='&theme='+th;        // classic is the default
+    if(th==='dark' && bg) u+='&bg='+encodeURIComponent(bg);
+    if(ac==='0') u+='&autocard=0';                   // 30s is the default
+    else if(ac) u+='&cardsecs='+ac;
     document.getElementById('open').href=u;
     document.getElementById('url').textContent=new URL(u, location.href).href;
   }
-  ['club','fixture','id','provider'].forEach(function(k){document.getElementById(k).addEventListener('input',build);});
-  document.getElementById('provider').addEventListener('change',build);
+  ['club','fixture','id'].forEach(function(k){document.getElementById(k).addEventListener('input',build);});
+  ['provider','theme','autocard'].forEach(function(k){document.getElementById(k).addEventListener('change',build);});
+  var pick=document.getElementById('pick'), bg=document.getElementById('bg');
+  pick.addEventListener('input',function(){ bg.value=pick.value.replace(/^#/,'').toUpperCase(); build(); });
+  bg.addEventListener('input',function(){
+    var v=bg.value.trim().replace(/^#/,''); if(/^[0-9a-fA-F]{6}$/.test(v)) pick.value='#'+v; build();
+  });
   build();
 </script>
 </body>
