@@ -128,12 +128,16 @@ an innings change so the first poll of an innings only sets a baseline.
 ## Status
 
 - ✅ Token + proxy + completed-match **scorecard** verified against real data.
-- ✅ **Live bar** driven by `getBallByBall`: current bowler with cumulative
-  figures (`latestBowling` — the summary's `currentBowler` proved unreliable
-  live) and **this-over ball chips** (`•`/runs/`W`/`1wd`/`1nb`, wicket red,
-  4 teal, 6 navy) showing the whole over, extras included. Falls back to the
-  previous over while a new over has no deliveries yet, and to summary fields
-  if the ball feed fails.
+- ✅ **Live bar** driven by `getBallByBall`. The bowler's figures come from the
+  current over's running `bowlerBalls/Runs/Wickets`, keyed on that over's
+  `bowlerName`, so they advance **every ball** and always belong to the bowler
+  actually bowling. (`latestBowling` has only two slots — `bowler1`/`bowler2` —
+  so once a third bowler is on it returns someone who isn't bowling, and the
+  bar froze on their stale figures. It's now only a fallback.) Batter runs come
+  from the same ball-derived totals, so the bar and the splash cards can never
+  disagree. **This-over ball chips** (`•`/runs/`W`/`1wd`/`1nb`, wicket red,
+  4 teal, 6 navy) show the whole over, extras included, falling back to the
+  previous over while a new one has no deliveries yet.
 - ✅ **Auto splash** (full innings / summary / worm) verified by replaying match
   `994` one delivery at a time against the overlay.
 - ✅ **Classic + dark themes**, `?bg=` recolouring, `?card=` preview.

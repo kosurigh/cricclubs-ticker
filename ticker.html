@@ -304,6 +304,7 @@
   // gives just the top 3 batters/bowlers. Everything the cards need — batting
   // order, dismissals, bowling figures, the worm — is rebuilt from here.
   function shortName(f,l){ f=String(f||"").trim(); l=String(l||"").trim(); return (f+(l?" "+l[0]:"")).trim(); }
+  function oversOf(balls){ balls=balls||0; return Math.floor(balls/6)+"."+(balls%6); }
   function oversSorted(data){
     return Object.keys(data.oversMap).sort(function(a,b){ return parseInt(a.slice(4),10)-parseInt(b.slice(4),10); });
   }
@@ -409,6 +410,7 @@
     return { team:inn.teamName, runs:total, wickets:wkts, overs:inn.overs, rcb:inn.rcb,
              bat:batOrder.map(function(n){ return bat[n]; }),
              bowl:bowlOrder.map(function(n){ return bowl[n]; }),
+             batBy:bat, bowlBy:bowl,          // by name, for the live bar
              extras:extras, extraBits:exBits.join(" "),
              pts:pts, wktPts:wktPts, legalBalls:legal,
              lastOver:lastOver, lastOverBalls:lastOverBalls };
@@ -439,21 +441,40 @@
   function liveFromModel(m){
     var s=curInn(m); if(!s) return null;
     var over=s.lastOver||{};
-    var lb=m.latestBowling||{}, pick=lb.bowler1, bw=null;
-    if(over.bowlerName && lb.bowler2
-       && shortName(lb.bowler2.firstName,lb.bowler2.lastName)===over.bowlerName
-       && (!pick || shortName(pick.firstName,pick.lastName)!==over.bowlerName)) pick=lb.bowler2;
-    if(pick) bw={name:shortName(pick.firstName,pick.lastName), wickets:pick.wickets, runs:pick.runs, overs:pick.overs};
-    var bat=null, run=null, pair=m.latestBatting||{};
-    if(over.batsmanName){
-      bat={name:over.batsmanName, runs:over.batsmanRuns, balls:over.batsmanBalls};
-      if(over.runnerName) run={name:over.runnerName, runs:over.runnerRuns, balls:over.runnerBalls};
-    } else if(pair.batsman1){
-      bat={name:shortName(pair.batsman1.firstName,pair.batsman1.lastName), runs:pair.batsman1.runsScored, balls:pair.batsman1.ballsFaced};
-      if(pair.batsman2) run={name:shortName(pair.batsman2.firstName,pair.batsman2.lastName), runs:pair.batsman2.runsScored, balls:pair.batsman2.ballsFaced};
+
+    // Bowler figures come from the running per-over aggregates, keyed by the
+    // over's own bowlerName. `latestBowling` only has two slots, so once a third
+    // bowler is on it silently returns a bowler who isn't bowling — and with it
+    // that bowler's frozen figures. The over aggregates advance every ball.
+    var bw=null, mb=over.bowlerName && s.bowlBy[over.bowlerName];
+    if(mb) bw={name:mb.name, wickets:mb.wickets, runs:mb.runs, overs:oversOf(mb.balls)};
+    else {
+      var lb=m.latestBowling||{}, pick=lb.bowler1;
+      if(over.bowlerName && lb.bowler2
+         && shortName(lb.bowler2.firstName,lb.bowler2.lastName)===over.bowlerName
+         && (!pick || shortName(pick.firstName,pick.lastName)!==over.bowlerName)) pick=lb.bowler2;
+      if(pick) bw={name:shortName(pick.firstName,pick.lastName), wickets:pick.wickets, runs:pick.runs, overs:pick.overs};
     }
-    return {inn:m.cur, bowler:bw, striker:bat, runner:run, chips:ballChips(m),
+
+    // Same for the pair: CricClubs says who is on strike, the ball-derived
+    // totals say how many — so the bar can never disagree with the card.
+    var pair=m.latestBatting||{}, bat=null, run=null;
+    if(over.batsmanName){
+      bat=liveBat(s, over.batsmanName, over.batsmanRuns, over.batsmanBalls);
+      if(over.runnerName) run=liveBat(s, over.runnerName, over.runnerRuns, over.runnerBalls);
+    } else if(pair.batsman1){
+      bat=liveBat(s, shortName(pair.batsman1.firstName,pair.batsman1.lastName),
+                  pair.batsman1.runsScored, pair.batsman1.ballsFaced);
+      if(pair.batsman2)
+        run=liveBat(s, shortName(pair.batsman2.firstName,pair.batsman2.lastName),
+                    pair.batsman2.runsScored, pair.batsman2.ballsFaced);
+    }
+    return {inn:m.cur, stats:s, bowler:bw, striker:bat, runner:run, chips:ballChips(m),
             firstBatTeam:(m.inns[0]&&m.inns[0].team)||null};
+  }
+  function liveBat(s, name, runs, balls){
+    var p=name && s.batBy[name];
+    return p ? {name:p.name, runs:p.runs, balls:p.balls} : {name:name, runs:runs, balls:balls};
   }
 
   // ---- live bar --------------------------------------------------------
@@ -485,6 +506,9 @@
     if((!sb||!sb.name) && live) sb=live.striker;
     if((!nsb||!nsb.name) && live) nsb=live.runner;
     if(live && live.bowler) bw=live.bowler;
+    // whoever named the players, the numbers come from the ball feed
+    if(live && live.stats){ sb=liveBat(live.stats,(sb||{}).name,(sb||{}).runs,(sb||{}).balls);
+                            nsb=liveBat(live.stats,(nsb||{}).name,(nsb||{}).runs,(nsb||{}).balls); }
     $("bat").innerHTML = (sb?batRow(sb,true):"") + (nsb?batRow(nsb,false):"");
     $("bowl").innerHTML = (bw?bowlRow(bw):"")
       + (live&&live.chips ? '<div class="prow balls">'+live.chips+'</div>' : "");
@@ -549,7 +573,6 @@
   }
 
   // ---- full-innings card: every batter on top, that innings' bowling below ----
-  function oversOf(balls){ return Math.floor(balls/6)+"."+(balls%6); }
   function renderFullCard(d, m, banner){
     var s=curInn(m);
     if(!s || !s.bat.length){ renderScorecard(d, banner, true, true); return; }
