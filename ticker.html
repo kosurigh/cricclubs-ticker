@@ -605,6 +605,27 @@
       +'<div class="sc-cols"><div class="sc-bat"><div class="sc-h">Batting</div>'+b+'</div>'
       +'<div class="sc-bowl"><div class="sc-h">Bowling</div>'+o+'</div></div></div>';
   }
+  // Innings block built from the ball-feed model — during live play the
+  // summary's team1TopBatsman/team1TopBowlers fields are null (CricClubs only
+  // fills them once the match completes), so the splash summary card derives
+  // its top batters/bowlers from the ball feed instead.
+  function innBlockFromStats(s, side){
+    var bats=s.bat.slice().sort(function(a,b){ return (b.runs||0)-(a.runs||0); }).slice(0,5);
+    var bowls=s.bowl.slice().sort(function(a,b){
+      return ((b.wickets||0)-(a.wickets||0)) || ((a.runs||0)-(b.runs||0)); }).slice(0,4);
+    var b=bats.map(function(p){
+      var star=!p.how?' <b style="color:#0e8d80">*</b>':'';
+      return scLine(fitName(p.name)+star,(p.runs||0)+' <small>('+(p.balls||0)+')</small>'); }).join('');
+    var o=bowls.map(function(p){
+      return scLine(fitName(p.name),(p.wickets||0)+'-'+(p.runs||0)+' <small>('+oversOf(p.balls)+')</small>'); }).join('');
+    var ov=(s.overs!=null&&s.overs!=="")?s.overs:oversOf(s.legalBalls);
+    var tot=s.runs+'/'+s.wickets+' ('+ov+')';
+    return '<div class="sc-inn"><div class="sc-tm">'+teamBadge(s.team,side)
+      +'<span class="nm">'+esc(s.team||"")+'</span><span class="tot">'+tot+'</span></div>'
+      +'<div class="sc-cols"><div class="sc-bat"><div class="sc-h">Batting</div>'+b+'</div>'
+      +'<div class="sc-bowl"><div class="sc-h">Bowling</div>'+o+'</div></div></div>';
+  }
+
   // CricClubs returns the result with a short team code ("STL won by 3 Wickets").
   // The winner is the higher-scoring side, so swap the code for the full name.
   function fullResult(d){
@@ -617,14 +638,21 @@
     return '<div class="sc-head"><span class="t">'+esc(d.leagueName||"")+'</span>'
       +'<span class="r">'+esc(d.seriesName||"")+'</span></div>';
   }
-  function renderScorecard(d, banner, isNote, isSplash){
+  function renderScorecard(d, banner, isNote, isSplash, m){
     var res= banner? '<div class="'+(isNote?"sc-note":"sc-result")+'">'+(isNote?esc(banner):banner)+'</div>':'';
     var toss= (!isSplash && d.tossResult)? '<div class="sc-toss">'+esc(d.tossResult)+'</div>':'';
-    var b1=innBlock(d.team1Name,d.team1Score,d.team1Wickets,d.team1Overs,d.team1TopBatsman,d.team1TopBowlers,"a");
-    var b2=innBlock(d.team2Name,d.team2Score,d.team2Wickets,d.team2Overs,d.team2TopBatsman,d.team2TopBowlers,"b");
+    var blocks;
+    if (m && (m.inns[0]||m.inns[1])){
+      // live: innings order from the ball feed; an innings that hasn't
+      // started yet is simply skipped
+      blocks=m.inns.map(function(s,i){ return s? innBlockFromStats(s, i===0?"a":"b") : ""; }).join('');
+    } else {
+      blocks=innBlock(d.team1Name,d.team1Score,d.team1Wickets,d.team1Overs,d.team1TopBatsman,d.team1TopBowlers,"a")
+           + innBlock(d.team2Name,d.team2Score,d.team2Wickets,d.team2Overs,d.team2TopBatsman,d.team2TopBowlers,"b");
+    }
     var el=$("scorecard");
     el.classList.toggle("splash", !!isSplash);
-    el.innerHTML='<div class="sc-card">'+cardHead(d)+res+toss+b1+b2+'</div>';
+    el.innerHTML='<div class="sc-card">'+cardHead(d)+res+toss+blocks+'</div>';
     el.classList.add("show");
     fitCard();
   }
@@ -632,7 +660,7 @@
   // ---- full-innings card: every batter on top, that innings' bowling below ----
   function renderFullCard(d, m, banner){
     var s=curInn(m);
-    if(!s || !s.bat.length){ renderScorecard(d, banner, true, true); return; }
+    if(!s || !s.bat.length){ renderScorecard(d, banner, true, true, m); return; }
     var batHead='<div class="sc-th"><span class="pn">Batting</span><span class="sc-c">R</span>'
       +'<span class="sc-c">B</span><span class="sc-c">4s</span><span class="sc-c">6s</span>'
       +'<span class="sc-c w">SR</span></div>';
@@ -756,7 +784,7 @@
     var wormMs=cardSecs-fullMs-sumMs;
     if (wormMs<5000) wormMs=0;         // too short -> the summary runs out the clock
     var at=function(ms,fn){ phaseTimers.push(setTimeout(fn, Math.max(0, start+ms-Date.now()))); };
-    if (sumMs>0) at(fullMs, function(){ renderScorecard(d, reason, true, true); });
+    if (sumMs>0) at(fullMs, function(){ renderScorecard(d, reason, true, true, m); });
     if (wormMs>0) at(fullMs+sumMs, function(){ renderWorm(d, m, reason); });
   }
 
@@ -768,7 +796,7 @@
     cardUntil=Infinity;
     if (debugCard==="full") renderFullCard(d, m, "Preview");
     else if (debugCard==="worm") renderWorm(d, m, "Preview");
-    else renderScorecard(d, "Preview", true, true);
+    else renderScorecard(d, "Preview", true, true, m);
   }
 
   function fetchJSON(u){ return fetch(u,{cache:"no-store"}).then(function(r){ return r.json(); }); }
