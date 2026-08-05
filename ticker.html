@@ -87,6 +87,8 @@
   body.prov-streamlabs .ball, body.prov-prism .ball{
     min-width:18px; height:18px; padding:0 4px; border-radius:9px; font-size:10px; }
   body.prov-streamlabs .ball.ex, body.prov-prism .ball.ex{ font-size:9px; }
+  .oyts{ font-size:11px; font-weight:700; color:var(--sub); letter-spacing:.4px;
+         text-transform:uppercase; }
 
   .center{ display:flex; flex-direction:column; align-items:center; justify-content:center; flex:none; padding:0 6px; }
   .pill{ display:flex; align-items:stretch; border-radius:12px; overflow:hidden; box-shadow:0 2px 10px rgba(0,0,0,.3); }
@@ -343,7 +345,7 @@
     var bat={}, batOrder=[], bowl={}, bowlOrder=[];
     var pts=[[0,0]], wktPts=[], cum=0, legal=0, wkts=0;
     var ex={wd:0,nb:0,b:0,lb:0};
-    var lastOver=null, lastOverBalls=[];
+    var lastOver=null, lastOverBalls=[], lastOverStarted=false;
 
     ks.forEach(function(key){
       var o=inn.oversMap[key]||{}, balls=realBalls(o);
@@ -395,8 +397,9 @@
       if(rc){ cum=rc.r; wkts=rc.w; }         // the over's rcb is authoritative
       pts.push([(o.overNum!=null?o.overNum:parseInt(key.slice(4),10))+1, cum]);
       lastOver=o;
-      // keep the last over that actually has deliveries, so the chips don't go
-      // blank in the moment between overs
+      // keep the last over that actually has deliveries; whether the newest
+      // over entry has any tells the bar a fresh bowler is yet to start
+      lastOverStarted = balls.length>0;
       if(balls.length) lastOverBalls=balls;
     });
 
@@ -413,7 +416,7 @@
              batBy:bat, bowlBy:bowl,          // by name, for the live bar
              extras:extras, extraBits:exBits.join(" "),
              pts:pts, wktPts:wktPts, legalBalls:legal,
-             lastOver:lastOver, lastOverBalls:lastOverBalls };
+             lastOver:lastOver, lastOverBalls:lastOverBalls, overStarted:lastOverStarted };
   }
 
   // Both innings + which one is in progress, from one ball-feed response.
@@ -470,11 +473,22 @@
                     pair.batsman2.runsScored, pair.batsman2.ballsFaced);
     }
     return {inn:m.cur, stats:s, bowler:bw, striker:bat, runner:run, chips:ballChips(m),
+            overNotStarted:!s.overStarted,
             firstBatTeam:(m.inns[0]&&m.inns[0].team)||null};
   }
   function liveBat(s, name, runs, balls){
     var p=name && s.batBy[name];
     return p ? {name:p.name, runs:p.runs, balls:p.balls} : {name:name, runs:runs, balls:balls};
+  }
+
+  // "STL opt to field" / "Cary Sirjis won the toss and elected to bat"
+  //   -> "<Team> won the toss and selected bowling/batting"
+  function tossLine(d){
+    var t=String(d.tossResult||"").trim();
+    if(!t) return "";
+    var m=t.match(/^(.*?)(?:\s+won\s+the\s+toss)?(?:\s+and)?\s+(?:opt|elect|chose?)(?:ed)?\s+to\s+(bat|bowl|field)/i);
+    if(m) return m[1]+" won the toss and selected "+(/bat/i.test(m[2])?"batting":"bowling");
+    return t;
   }
 
   // ---- live bar --------------------------------------------------------
@@ -510,8 +524,14 @@
     if(live && live.stats){ sb=liveBat(live.stats,(sb||{}).name,(sb||{}).runs,(sb||{}).balls);
                             nsb=liveBat(live.stats,(nsb||{}).name,(nsb||{}).runs,(nsb||{}).balls); }
     $("bat").innerHTML = (sb?batRow(sb,true):"") + (nsb?batRow(nsb,false):"");
-    $("bowl").innerHTML = (bw?bowlRow(bw):"")
-      + (live&&live.chips ? '<div class="prow balls">'+live.chips+'</div>' : "");
+    // a freshly selected bowler hasn't bowled yet: the chips would still be the
+    // previous bowler's over, so say so instead
+    var chipsHtml = (live && live.overNotStarted && bw)
+      ? '<div class="prow balls"><span class="oyts">Bowler&#39;s over yet to start</span></div>'
+      : (live&&live.chips ? '<div class="prow balls">'+live.chips+'</div>' : "");
+    $("bowl").innerHTML = (bw?bowlRow(bw):"") + chipsHtml;
+    // toss done but batters/bowler not yet picked in the scoring app
+    var notStarted = !(sb&&sb.name) && !(bw&&bw.name);
 
     $("pill").innerHTML =
         '<div class="ab a">'+esc(s.batName)+'</div>'
@@ -519,12 +539,17 @@
       + '<span class="ov">'+(s.batOv!=null?s.batOv:'0')+' ov</span></div>'
       + '<div class="ab b">'+esc(s.bowName)+'</div>';
 
-    // league (+ division, when a divisions.json is present) ABOVE the pill
+    // league (+ division, when a divisions.json is present) ABOVE the pill;
+    // pre-scoring, the toss result takes its place
     var div=divisionOf(s.batName, s.bowName);
-    $("ctop").innerHTML = esc(d.leagueName||"") + (div!=null ? ' &nbsp;•&nbsp; Division '+esc(div) : '');
+    var toss = notStarted ? tossLine(d) : "";
+    $("ctop").innerHTML = toss ? esc(toss)
+      : esc(d.leagueName||"") + (div!=null ? ' &nbsp;•&nbsp; Division '+esc(div) : '');
 
     var sub=$("csub"); sub.className="csub";
-    if (s.bi===2){
+    if (notStarted){
+      sub.innerHTML='Scoring of this match is yet to begin';
+    } else if (s.bi===2){
       var inn1Score = s.t1First ? d.team1Score : d.team2Score;
       var target=(inn1Score!=null?inn1Score:0)+1, need=target-(s.batScore!=null?s.batScore:0);
       sub.className="csub chase";
@@ -534,6 +559,37 @@
     }
     bar.classList.add("show");
   }
+
+  function showMsg(msg){
+    $("bat").innerHTML=""; $("bowl").innerHTML="";
+    $("pill").innerHTML='<div class="sc"><span class="score">—</span></div>';
+    $("ctop").innerHTML="";
+    $("csub").className="csub"; $("csub").innerHTML=esc(msg||"");
+    bar.classList.add("show");
+  }
+
+  // Shrink the card so it fits between the top of the frame and the live bar
+  // (tall cards — a long batting innings — otherwise clip the header and
+  // overlap the ticker). transform:scale keeps proportions; the flex-centred
+  // layout keeps the scaled card inside the available space.
+  function fitCard(){
+    var el=$("scorecard"), card=el.querySelector(".sc-card");
+    if (!card) return;
+    card.style.transform="";
+    // reserve only what the live bar actually occupies (the compact
+    // streamlabs/prism bar is shorter than the default 170px CSS guess)
+    el.style.paddingBottom="";
+    if (el.classList.contains("splash") && bar.classList.contains("show")){
+      var bt=bar.getBoundingClientRect().top;
+      if (bt>0 && bt<innerHeight)
+        el.style.paddingBottom=Math.round(innerHeight-bt+18)+"px";
+    }
+    var cs=getComputedStyle(el);
+    var avail=el.clientHeight-parseFloat(cs.paddingTop)-parseFloat(cs.paddingBottom);
+    var h=card.offsetHeight;
+    if (avail>0 && h>avail) card.style.transform="scale("+(avail/h).toFixed(3)+")";
+  }
+  window.addEventListener("resize", fitCard);
 
   // ---- both-teams summary card (end of match, and mid-splash) ----------
   function scLine(n,v){ return '<div class="sc-line"><span class="n">'+n+'</span><span class="v">'+v+'</span></div>'; }
@@ -570,6 +626,7 @@
     el.classList.toggle("splash", !!isSplash);
     el.innerHTML='<div class="sc-card">'+cardHead(d)+res+toss+b1+b2+'</div>';
     el.classList.add("show");
+    fitCard();
   }
 
   // ---- full-innings card: every batter on top, that innings' bowling below ----
@@ -610,6 +667,7 @@
       +batHead+batRows+xtr+'</div>'
       +'<div class="sc-sec">'+bowlHead+bowlRows+'</div></div>';
     el.classList.add("show");
+    fitCard();
   }
 
   // ---- worm graph: cumulative runs per over, wickets at the exact ball ----
@@ -657,6 +715,7 @@
     el.innerHTML='<div class="sc-card">'+cardHead(d)+res+'<div class="sc-worm"><div class="lg">'+legend+'</div>'
       +'<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg">'+g+'</svg></div></div>';
     el.classList.add("show");
+    fitCard();
     return true;
   }
 
@@ -734,10 +793,12 @@
   }
 
   function tick(){
-    if(!matchId || matchId==="0"){ resolveFixture(); return; }
+    // Camera often runs before scoring starts: show a friendly line, never a
+    // blank bar or an upstream error.
+    if(!matchId || matchId==="0"){ showMsg("Scoring of this match is yet to begin"); resolveFixture(); return; }
     fetchJSON(matchURL())
       .then(function(j){
-        var d=j&&j.data; if(!d){ return; }
+        var d=j&&j.data; if(!d){ showMsg("Scoring of this match is yet to begin"); return; }
         var completed = String(d.isCompleted)==="1" && !forceLive;
         // the cards all come off the ball feed, so fetch it unless the match is
         // over and we only need the two-innings summary
